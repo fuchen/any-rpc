@@ -1,0 +1,28 @@
+{
+  "name": "any-rpc",
+  "version": "0.0.1",
+  "description": "",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fuchen/sio-rpc.git"
+  },
+  "author": "Fu Chen",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/fuchen/sio-rpc/issues"
+  },
+  "homepage": "https://github.com/fuchen/sio-rpc#readme",
+  "dependencies": {
+    "reflect-metadata": "^0.1.13"
+  },
+  "devDependencies": {
+    "@types/socket.io": "^2.1.2",
+    "@types/socket.io-client": "^1.4.32",
+    "socket.io": "^2.2.0",
+    "socket.io-client": "^2.2.0"
+  }
+}
