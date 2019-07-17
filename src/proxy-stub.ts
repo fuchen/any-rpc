@@ -12,6 +12,8 @@ class ServiceProxyHandler {
     reject: (error: any) => void
   }>()
 
+  public proxy: any = null
+
   constructor(private readonly transporter: Transporter, private readonly ns: string) {
   }
 
@@ -28,7 +30,12 @@ class ServiceProxyHandler {
         ns: this.ns, seq, method, params
       })
       this.pendingRpcs.set(seq, { resolve, reject })
-    })
+    });
+    (func as any).noret = (...params: any[]) => {
+      this.transporter.emit('__rpc_call__', {
+        ns: this.ns, seq: 0, method, params
+      })
+    }
 
     this.methodStubs.set(method, func)
     return func
@@ -54,32 +61,32 @@ class ServiceProxyHandler {
   }
 }
 
-function rpcInitProxies(transporter: Transporter): Map<string, ServiceProxyHandler> {
-  let proxies: Map<string, ServiceProxyHandler> = Reflect.getMetadata(rpcProxiesMetadataKey, transporter)
-  if (proxies) {
-    return proxies
+function ensureRpcProxyHandlers(transporter: Transporter): Map<string, ServiceProxyHandler> {
+  let proxyHandlers: Map<string, ServiceProxyHandler> = Reflect.getMetadata(rpcProxiesMetadataKey, transporter)
+  if (proxyHandlers) {
+    return proxyHandlers
   }
-  proxies = new Map<string, ServiceProxyHandler>()
-  Reflect.defineMetadata(rpcProxiesMetadataKey, proxies, transporter)
+  proxyHandlers = new Map<string, ServiceProxyHandler>()
+  Reflect.defineMetadata(rpcProxiesMetadataKey, proxyHandlers, transporter)
 
   transporter.on('__rpc_return__', async ({ns, seq, value, error}: any) => {
-    const proxyHandler = proxies.get(ns)
+    const proxyHandler = proxyHandlers.get(ns)
     if (proxyHandler) {
       proxyHandler.onReturn(seq, value, error)
     }
   })
-  return proxies
+  return proxyHandlers
 }
 
 export function getServiceProxy<T extends object = any>(transporter: Transporter, ns: string): T {
-  const proxies: Map<string, any> = rpcInitProxies(transporter)
-  let proxy = proxies.get(ns)
-  if (proxy) {
-    return proxy
+  const proxyHandlers: Map<string, ServiceProxyHandler> = ensureRpcProxyHandlers(transporter)
+  let handler = proxyHandlers.get(ns)
+  if (handler) {
+    return handler.proxy
   }
 
-  const handler = new ServiceProxyHandler(transporter, ns)
-  proxy = new Proxy<T>({} as any, handler)
-  proxies.set(ns, handler)
-  return proxy
+  handler = new ServiceProxyHandler(transporter, ns)
+  handler.proxy = new Proxy<T>({} as any, handler)
+  proxyHandlers.set(ns, handler)
+  return handler.proxy
 }

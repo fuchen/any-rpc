@@ -1,7 +1,7 @@
-import {Rpc, exported, rpcServe, getServiceProxy } from '../src'
+import {rpc, exported, rpcServe, getServiceProxy } from '../src'
 import * as socketIo from 'socket.io'
 
-@Rpc()
+@rpc()
 class ServerSideService {
   constructor(private readonly clientProxy) {}
 

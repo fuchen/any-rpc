@@ -1,2 +1,2 @@
-export { rpcServe, exported, Rpc } from './serve'
+export { rpcServe, exported, rpc } from './serve'
 export { getServiceProxy } from './proxy-stub'

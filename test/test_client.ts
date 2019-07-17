@@ -1,7 +1,7 @@
 import * as socketIoClient from 'socket.io-client'
-import {Rpc, exported, rpcServe, getServiceProxy } from '../src'
+import {rpc, exported, rpcServe, getServiceProxy } from '../src'
 
-@Rpc()
+@rpc()
 class ClientSideService {
   @exported
   mul(a, b) {

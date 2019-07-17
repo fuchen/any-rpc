@@ -13,17 +13,7 @@ interface RegisteredService extends ServiceOptions {
 const rpcOptionsMetadataKey = Symbol('any-rpc:options')
 const rpcServicesMetadataKey = Symbol('any-rpc:services')
 
-// tslint:disable-next-line: ban-types
-export const Rpc = (options?: ServiceOptions) => (constructor: Function) => {
-  const target = constructor.prototype
-  const rpcOptions = Reflect.getMetadata(rpcOptionsMetadataKey, target)
-  Object.assign(rpcOptions, options)
-  if (!rpcOptions.name) {
-    rpcOptions.name = constructor.name
-  }
-}
-
-export const exported = (target: any, propKey?: string) => {
+function ensureRpcOptions(target: any) {
   let options: ServiceOptions = Reflect.getMetadata(rpcOptionsMetadataKey, target)
   if (!options) {
     options = {
@@ -31,10 +21,24 @@ export const exported = (target: any, propKey?: string) => {
     }
     Reflect.defineMetadata(rpcOptionsMetadataKey, options, target)
   }
+  return options
+}
+// tslint:disable-next-line: ban-types
+export const rpc = (options?: ServiceOptions) => (constructor: Function) => {
+  const target = constructor.prototype
+  const rpcOptions = ensureRpcOptions(target)
+  Object.assign(rpcOptions, options)
+  if (!rpcOptions.name) {
+    rpcOptions.name = constructor.name
+  }
+}
+
+export const exported = (target: any, propKey?: string) => {
+  const options = ensureRpcOptions(target)
   options.methods.set(propKey, target[propKey])
 }
 
-function rpcInitServices(transporter: Transporter): Map<string, RegisteredService> {
+function ensureRpcServices(transporter: Transporter): Map<string, RegisteredService> {
   let services: Map<string, RegisteredService> = Reflect.getMetadata(rpcServicesMetadataKey, transporter)
   if (services) {
     return services
@@ -44,20 +48,24 @@ function rpcInitServices(transporter: Transporter): Map<string, RegisteredServic
   transporter.on('__rpc_call__', async ({ns, seq, method, params}: any) => {
     const service = services.get(ns)
     if (!service) {
-      transporter.emit('__rpc_return__', {
-        ns,
-        seq,
-        error: 'Service not found'
-      })
+      if (seq) {
+        transporter.emit('__rpc_return__', {
+          ns,
+          seq,
+          error: `Service ${ns} not found`
+        })
+      }
       return
     }
 
     if (!service.methods.has(method)) {
-      transporter.emit('__rpc_return__', {
-        ns,
-        seq,
-        error: `Rpc method "${method}" not found`
-      })
+      if (seq) {
+        transporter.emit('__rpc_return__', {
+          ns,
+          seq,
+          error: `Rpc method "${method}" not found`
+        })
+      }
       return
     }
     try {
@@ -65,13 +73,17 @@ function rpcInitServices(transporter: Transporter): Map<string, RegisteredServic
       if (value && value.then) {
         value = await value
       }
-      transporter.emit('__rpc_return__', { ns, seq, value })
+      if (seq) {
+        transporter.emit('__rpc_return__', { ns, seq, value })
+      }
     } catch (e) {
-      transporter.emit('__rpc_return__', {
-        ns,
-        seq,
-        error: e.toString()
-      })
+      if (seq) {
+        transporter.emit('__rpc_return__', {
+          ns,
+          seq,
+          error: e.toString()
+        })
+      }
     }
   })
   return services
@@ -83,11 +95,7 @@ export function rpcServe(transporter: Transporter, service: any) {
     throw new Error('Not a valid rpc service')
   }
 
-  const services = rpcInitServices(transporter)
-  if (services.has(options.name)) {
-    services.delete(options.name)
-  }
-
+  const services = ensureRpcServices(transporter)
   services.set(options.name, Object.assign({
     instance: service
   }, options))
