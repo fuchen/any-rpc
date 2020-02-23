@@ -3,16 +3,16 @@ import * as socketIo from 'socket.io'
 
 @rpc()
 class ServerSideService {
-  constructor(private readonly clientProxy) {}
+  constructor(private readonly clientProxy: any) {}
 
   @exported
-  add(a, b) {
+  add(a: number, b: number) {
     console.log('add', a, b)
     return a + b
   }
 
   @exported
-  addAsync(a, b) {
+  addAsync(a: number, b: number) {
     console.log('addAsync', a, b)
     return new Promise((resolve) => {
       setTimeout(() => resolve(a + b), 1000)
@@ -28,11 +28,11 @@ class ServerSideService {
   @exported
   async callClientMul() {
     console.log('callClientMul')
-    console.log('3 * 7 = ', await this.clientProxy.mul(3, 7))
+    console.log('3 * 7 = ', await this.clientProxy.mul.invoke(3, 7))
   }
 
   // @exported: not exported
-  sub(a, b) {
+  sub(a: number, b: number) {
     console.log('sub', a, b)
     return a - b
   }

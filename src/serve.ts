@@ -1,109 +1,72 @@
 import 'reflect-metadata'
-import {Transporter} from './common'
+import {
+    Transporter, CallEventArg, ActiveService, ServiceConfig,
+    servicesMetaKey, configMetaKey
+} from './common'
 
-interface ServiceOptions {
-  name?: string
-  methods?: Map<string, (...args: any[]) => any>
+function getConfig(serviceInstance: any) : ServiceConfig {
+    return Reflect.getMetadata(configMetaKey, serviceInstance.__proto__)
 }
 
-interface RegisteredService extends ServiceOptions {
-  instance: any
-}
-
-const rpcOptionsMetadataKey = Symbol('any-rpc:options')
-const rpcServicesMetadataKey = Symbol('any-rpc:services')
-
-function ensureRpcOptions(target: any) {
-  let options: ServiceOptions = Reflect.getMetadata(rpcOptionsMetadataKey, target)
-  if (!options) {
-    options = {
-      methods: new Map<string, (...args: any[]) => any>()
-    }
-    Reflect.defineMetadata(rpcOptionsMetadataKey, options, target)
-  }
-  return options
-}
-// tslint:disable-next-line: ban-types
-export const rpc = (options?: ServiceOptions) => (constructor: Function) => {
-  const target = constructor.prototype
-  const rpcOptions = ensureRpcOptions(target)
-  Object.assign(rpcOptions, options)
-  if (!rpcOptions.name) {
-    rpcOptions.name = constructor.name
-  }
-}
-
-export const exported = (target: any, propKey?: string) => {
-  const options = ensureRpcOptions(target)
-  options.methods.set(propKey, target[propKey])
-}
-
-function ensureRpcServices(transporter: Transporter): Map<string, RegisteredService> {
-  let services: Map<string, RegisteredService> = Reflect.getMetadata(rpcServicesMetadataKey, transporter)
-  if (services) {
-    return services
-  }
-  services = new Map<string, RegisteredService>()
-  Reflect.defineMetadata(rpcServicesMetadataKey, services, transporter)
-  transporter.on('__rpc_call__', async ({ns, seq, method, params}: any) => {
+async function callService(
+    transporter: Transporter,
+    services: Map<string, ActiveService>,
+    { ns, seq, method, params }: CallEventArg
+) {
     const service = services.get(ns)
+    let error: string | undefined
+    let value: any | undefined
     if (!service) {
-      if (seq) {
-        transporter.emit('__rpc_return__', {
-          ns,
-          seq,
-          error: `Service ${ns} not found`
-        })
-      }
-      return
+        error = `Service ${ns} not found`
+    } else {
+        const func = service.config.methods.get(method)
+        if (!func) {
+            error = `Rpc method "${ns}.${method}" not found`
+        } else {
+            try {
+                value = func.apply(service.instance, params)
+                if (value && value.then && typeof value.then === 'function') {
+                    value = await value
+                }
+            } catch (e) {
+                error = e.toString()
+            }
+        }
     }
-
-    if (!service.methods.has(method)) {
-      if (seq) {
-        transporter.emit('__rpc_return__', {
-          ns,
-          seq,
-          error: `Rpc method "${method}" not found`
-        })
-      }
-      return
-    }
-    try {
-      let value = service.methods.get(method).apply(service.instance, params)
-      if (value && value.then) {
-        value = await value
-      }
-      if (seq) {
+    if (error) {
+        transporter.emit('__rpc_return__', { ns, seq, error })
+    } else {
         transporter.emit('__rpc_return__', { ns, seq, value })
-      }
-    } catch (e) {
-      if (seq) {
-        transporter.emit('__rpc_return__', {
-          ns,
-          seq,
-          error: e.toString()
-        })
-      }
     }
-  })
-  return services
 }
 
-export function rpcServe(transporter: Transporter, service: any) {
-  const options: ServiceOptions = Reflect.getMetadata(rpcOptionsMetadataKey, service.__proto__)
-  if (!options || !options.name) {
-    throw new Error('Not a valid rpc service')
-  }
+function getOrCreateServiceContainer(transporter: Transporter): Map<string, ActiveService> {
+    let services: Map<string, ActiveService> = Reflect.getMetadata(servicesMetaKey, transporter)
+    if (services) {
+        return services
+    }
+    services = new Map<string, ActiveService>()
+    Reflect.defineMetadata(servicesMetaKey, services, transporter)
+    transporter.on('__rpc_call__',(args : CallEventArg) => {
+        callService(transporter, services, args)
+    })
+    return services
+}
 
-  const services = ensureRpcServices(transporter)
-  services.set(options.name, Object.assign({
-    instance: service
-  }, options))
+export function rpcServe(transporter: Transporter, instance: any) {
+    const config = getConfig(instance)
+    if (!config || !config.name) {
+        console.log(config)
+        throw new Error('Not a valid rpc service')
+    }
+
+    const services = getOrCreateServiceContainer(transporter)
+    services.set(config.name, { instance, config })
 }
 
 export function rpcStop(transporter: Transporter, ns: string) {
-  const services: Map<string, RegisteredService> = Reflect.getMetadata(rpcServicesMetadataKey, transporter)
-  if (services && services.has(ns)) {
-    services.delete(ns)
-  }
+    const services: Map<string, ActiveService> = Reflect.getMetadata(servicesMetaKey, transporter)
+    if (services && services.has(ns)) {
+        services.delete(ns)
+    }
 }
